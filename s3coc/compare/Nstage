@@ -76,7 +76,7 @@ stacked_bar_plot <- ggplot(data, aes(x = group, fill = N_stages)) +
   geom_bar(position = "stack") +
   geom_text(stat = "count", aes(label = paste(..count.., " (", scales::percent(..count../sum(..count..)), ")")),
             vjust = -0.5, position = position_stack(0.5)) +
-  labs(title = "Stacked Bar Chart of group vs. T_stages", x = "group", y = "Count")+
+  labs(title = "Stacked Bar Chart of group vs. N_stages", x = "group", y = "Count")+
   theme_bw()
 
 
