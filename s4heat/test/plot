@@ -1,0 +1,74 @@
+# =================================================================
+#   
+# =================================================================
+rm(list=ls())
+library(genefilter)
+library(GSVA)
+library(Biobase)
+library(stringr)
+library(reshape2)
+library(tidyr)
+library(ggpubr)
+
+
+setwd("D:\\s3coc")
+
+subtype <- read.csv("subtype_test.csv", header = T, row.names = 1)
+
+head(subtype)
+
+
+table(subtype$group)
+
+subtype$group[subtype$group=="Subtype_H"] <- "IM+"
+subtype$group[subtype$group=="Subtype_P"] <- "OX+"
+
+table(subtype$group)
+
+
+
+
+
+setwd("D:\\s4heat\\test")
+scores <- read.csv(file = 'gsvaresult.csv', header = T, row.names = 1)
+scores$Sample <- rownames(scores)
+head(scores)
+
+data <- merge(subtype, scores, by="Sample")
+head(data)
+
+rownames(data) <- data$Sample
+data$Sample <- NULL
+names(data)
+
+
+names(data)[1] <- 'group'
+
+
+names(data)
+
+
+data1 <- gather(data, cell, count, "GOBP_POSITIVE_REGULATION_OF_RESPONSE_TO_OXIDATIVE_STRESS":"HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY"   )
+head(data1)
+
+
+
+
+# Now you can proceed with your ggboxplot code
+p <- ggboxplot(data1, x = "cell", y = "count", size = 0.5, bxp.errorbar = TRUE, 
+               color = "group", palette = c("#614BC3", "#C51605"),
+               add.params = list(size = 0.5), outlier.shape = NA, 
+               add = "point") + ylab("") + xlab("") +
+  stat_compare_means(aes(group = group), size = 2, label = "p.signif", method = "wilcox.test") +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5, hjust = 0.5),
+        axis.text = element_text(size = 5))
+
+print(p)
+
+pdf(file = "plot.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+
+
