@@ -1,0 +1,128 @@
+# Clear the workspace
+rm(list=ls())
+
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+set.seed(1234)
+# Function to load and process pd.Rdata from a given directory
+load_and_process_pd <- function(directory, dataset_name) {
+  full_path <- paste0('D:\\s1datasets\\', directory)
+  load(file.path(full_path, "pd.Rdata"))
+  
+  df <- pd
+  df$dataset <- dataset_name
+  subset(df, select = c("Sample", "dataset"))
+}
+
+# Load and process all datasets
+datasets <- c("GSE3141", "GSE13213", "GSE14814", "GSE26939", "GSE30219", 
+              "GSE31210", "GSE37745", "GSE41271", "GSE42127", "GSE50081", 
+              "GSE68465", "TCGA")
+pdata <- do.call(rbind, lapply(datasets, function(ds) load_and_process_pd(ds, ds)))
+
+
+# Function to process exprSet.Rdata from a given directory
+process_dataset <- function(directory_path) {
+  load(file.path(directory_path, "exprSet.Rdata"))
+  exprSet <- as.data.frame(t(exprSet))
+  
+  # Convert expressions to binary based on median
+  medians <- apply(exprSet, 2, median)
+  binary_exprSet <- as.data.frame(lapply(1:ncol(exprSet), function(col_index) {
+    ifelse(exprSet[, col_index] >= medians[col_index], 1, 0)
+  }))
+  
+  # Update column and row names
+  colnames(binary_exprSet) <- colnames(exprSet)
+  rownames(binary_exprSet) <- rownames(exprSet)
+  
+  return(as.data.frame(t(binary_exprSet)))
+}
+
+# List of directories
+base_path <- 'D:\\s1datasets'
+directories <- paste0(base_path, "\\", datasets)
+
+# Process each dataset
+all_exprSets <- lapply(directories, process_dataset)
+names(all_exprSets) <- datasets
+
+# Find shared genes across all datasets
+shared_genes <- Reduce(intersect, lapply(all_exprSets, rownames))
+
+
+
+
+# Subset exprSets by shared genes and merge them
+for(i in 1:length(all_exprSets)) {
+  all_exprSets[[i]] <- all_exprSets[[i]][shared_genes, ]
+}
+
+
+# Convert row names to a new 'Gene' column for each data frame in the list
+all_exprSets <- lapply(all_exprSets, function(df) {
+  df$Gene <- rownames(df)
+  return(df)
+})
+
+# Merge the data frames by the 'Gene' column
+data <- Reduce(function(d1, d2) merge(d1, d2, by="Gene"), all_exprSets)
+
+data[1:5,1:5]
+
+
+
+rownames(data) <- data$Gene
+data$Gene <- NULL
+
+
+data <- as.data.frame(t(data))
+data$Sample <- rownames(data)
+head(pdata)
+data[1:5,1:5]
+
+# Merge pdata and transformed data
+merged_data <- merge(pdata, data, by='Sample')
+rownames(merged_data) <- merged_data$Sample
+merged_data$Sample <- NULL
+
+# Split merged data into phenotype and expression data
+pheno <- merged_data %>% dplyr::select(dataset)
+exprSet <- merged_data %>% dplyr::select(-c(dataset))
+
+# PCA and visualization
+PCA_raw <- prcomp(exprSet, scale = FALSE)
+dataGG <- data.frame(PC1 = PCA_raw$x[,1], PC2 = PCA_raw$x[,2], batch = pheno$dataset)
+dataGG$batch <- as.factor(dataGG$batch)
+
+
+colors <- c("#0C356A", "#614BC3", "#85E6C5", "#A8DF8E", "#F8DE22", 
+            "#6C3428", "#F6635C", "#C51605", "#FE7BE5", "#272829", 
+            "#61677A",  "#D8D9DA")
+
+p2 <- ggplot(dataGG, aes(x = PC1, y = PC2, color = batch)) + 
+  geom_point(size = 2, alpha = 0.8) +
+  ggtitle("") + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.background = element_rect(fill = "white"), 
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),  
+        panel.border = element_blank(), 
+        axis.line = element_line())+  
+  labs(color = "Disease") +
+  scale_color_manual(values = colors) 
+
+
+print(p2)
+
+
+setwd("D:\\s2pre")
+
+pdf(file = "after.pdf", height = 5, width = 7)
+p2
+dev.off()
+
+getwd()
+
