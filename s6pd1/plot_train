@@ -1,0 +1,162 @@
+#=======================================================
+
+#=======================================================
+
+
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+set.seed(1234)
+# Function to load and process pd.Rdata from a given directory
+load_and_process_pd <- function(directory, dataset_name) {
+  full_path <- paste0('D:\\s1datasets\\', directory)
+  load(file.path(full_path, "pd.Rdata"))
+  
+  df <- pd
+  df$dataset <- dataset_name
+  subset(df, select = c("Sample", "dataset"))
+}
+
+# Load and process all datasets
+datasets <- c("GSE3141", "GSE13213", "GSE14814", "GSE26939", "GSE30219", 
+              "GSE31210", "GSE37745", "GSE41271", "GSE42127", "GSE50081", 
+              "GSE68465", "TCGA")
+pdata <- do.call(rbind, lapply(datasets, function(ds) load_and_process_pd(ds, ds)))
+
+
+
+#=======================================================
+
+#=======================================================
+
+
+# Function to normalize gene expression data
+normalize_data <- function(data) {
+  (data - min(data)) / (max(data) - min(data))
+}
+
+# Function to load and process gene expression data
+load_and_process_exprSet <- function(directory, genes) {
+  setwd(directory)
+  load("exprSet.Rdata")
+  
+  exprSet <- t(exprSet[genes, ])
+  normalized_exprSet <- apply(exprSet, 2, normalize_data)
+  as.data.frame(normalized_exprSet)
+}
+
+# List of datasets and genes
+datasets <- c("GSE3141", "GSE13213", "GSE14814", "GSE26939", "GSE30219", 
+              "GSE31210", "GSE37745", "GSE41271", "GSE42127", "GSE50081", 
+              "GSE68465", "TCGA")
+genes <- c("PDCD1", "CTLA4")
+
+# Load and process gene expression data for each dataset
+data_list <- lapply(datasets, function(ds) {
+  directory <- paste0('D:\\s1datasets\\', ds)
+  load_and_process_exprSet(directory, genes)
+})
+
+# Combine processed datasets
+data_combined <- do.call(rbind, data_list)
+
+#=======================================================
+
+#=======================================================
+
+head(data_combined)
+
+data_combined$Sample <- rownames(data_combined)
+
+
+data <- merge(pdata, data_combined, by='Sample')
+
+
+#=======================================================
+
+#=======================================================
+
+
+
+setwd("D:\\s3coc")
+
+subtype <- read.csv("subtype_train.csv", header = T, row.names = 1)
+
+head(subtype)
+
+
+table(subtype$group)
+
+subtype$group[subtype$group=="Subtype_M"] <- "IM+"
+subtype$group[subtype$group=="Subtype_O"] <- "OX+"
+
+table(subtype$group)
+
+
+dt <- merge(subtype, data, by="Sample")
+
+head(dt)
+
+
+rownames(dt) <- dt$Sample
+
+dt$Sample <- NULL
+
+head(dt)
+
+str(dt)
+
+head(dt)
+
+
+setwd("D:\\s6pd1")
+
+p <- ggplot(dt, aes(x = dataset, y = CTLA4, fill = group)) +
+  geom_boxplot(outlier.shape = NA) +
+   scale_fill_manual(values = c("#614BC3", "#C51605")) +
+  labs(x = "", y = "CTLA4 Value", title = "Training Dataset") +
+  theme_minimal() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+p <- p + stat_compare_means(method = "wilcox.test", label = "p.signif", label.y = 0.9, size = 3)
+
+print(p)
+
+pdf(file = "CTLA4_train.pdf", height = 5, width = 10)
+p
+dev.off()
+
+
+
+
+
+
+
+
+p <- ggplot(dt, aes(x = dataset, y = PDCD1, fill = group)) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_fill_manual(values = c("#614BC3", "#C51605")) +
+  labs(x = "", y = "PDCD1 Value", title = "Training Dataset") +
+  theme_minimal() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+p <- p + stat_compare_means(method = "wilcox.test", label = "p.signif", label.y = 0.9, size = 3)
+
+print(p)
+
+pdf(file = "PDCD1_train.pdf", height = 5, width = 10)
+p
+dev.off()
+
+
+
+
