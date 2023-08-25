@@ -1,0 +1,96 @@
+#=======================================================
+
+#=======================================================
+
+# Clear the workspace
+rm(list=ls())
+
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+set.seed(1234)
+
+# Function to load and process pd.Rdata from a given directory
+load_and_process_pd <- function(directory, dataset_name) {
+  full_path <- paste0('D:\\s1datasets\\', directory)
+  load(file.path(full_path, "pd.Rdata"))
+  
+  df <- pd
+  df$dataset <- dataset_name
+  subset(df, select = c("Sample", "dataset", "M_stages"))
+}
+
+# Load and process all datasets
+datasets <- c( "GSE13213",   "GSE30219", 
+               "GSE50081", 
+                "TCGA")
+pdata <- do.call(rbind, lapply(datasets, function(ds) load_and_process_pd(ds, ds)))
+
+
+
+table(pdata$dataset)
+
+str(pdata)
+
+
+
+
+setwd("D:\\s3coc")
+
+subtype_train <- read.csv(file = "subtype_train.csv", header = T, row.names = 1)
+
+subtype_train$group[subtype_train$group=="Subtype_M"] <- "IM+"
+subtype_train$group[subtype_train$group=="Subtype_O"] <- "OX+"
+
+
+subtype_test <- read.csv(file = "subtype_test.csv", header = T, row.names = 1)
+subtype_test$group[subtype_test$group=="Subtype_H"] <- "IM+"
+subtype_test$group[subtype_test$group=="Subtype_P"] <- "OX+"
+
+
+subtype <- rbind(subtype_train, subtype_test)
+table(subtype$group)
+
+
+data <- merge(subtype, pdata, by="Sample")
+head(data)
+data <- na.omit(data)
+str(data)
+
+
+data <- subset(data, data$M_stages != "MNA")
+
+cross_table <- table(data$group, data$M_stages)
+
+print(cross_table)
+
+chisq_result <- chisq.test(data$group, data$M_stages)
+
+print(chisq_result)
+
+
+
+
+library(ggplot2)
+
+stacked_bar_plot <- ggplot(data, aes(x = group, fill = M_stages)) +
+  geom_bar(position = "stack") +
+  geom_text(stat = "count", aes(label = paste(..count.., " (", scales::percent(..count../sum(..count..)), ")")),
+            vjust = -0.5, position = position_stack(0.5)) +
+  labs(title = "Stacked Bar Chart of group vs. M_stages", x = "group", y = "Count")+
+  theme_bw()
+
+
+
+getwd()
+
+
+
+setwd("D:\\s3coc\\compare")
+
+pdf(file = "Mstage.pdf", height = 5, width = 5)
+stacked_bar_plot
+dev.off()
+
+
