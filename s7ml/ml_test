@@ -1,0 +1,134 @@
+# Clear the global environment
+rm(list=ls())
+
+# Load required libraries
+library(edgeR)
+library(limma)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(caret)
+library(MASS) 
+library(kernlab)
+library(pROC) 
+library(ggplot2)
+
+# Set a consistent seed for reproducibility
+set.seed(1234)
+
+# Set directory and read data
+setwd("D:\\s3coc")
+subtype <- read.csv("subtype_test.csv", row.names = 1)
+head(subtype)
+
+# Display the number of each group in 'subtype'
+table(subtype$group)
+
+# Rename certain groups
+subtype$group[subtype$group=="Subtype_H"] <- "IM"
+subtype$group[subtype$group=="Subtype_P"] <- "OX"
+table(subtype$group)
+
+# Change working directory and load models
+setwd("D:\\s7ml")
+load("rfmodel.Rdata")
+load("rpartmodel.Rdata")
+load("svmmodel.Rdata")
+load("nnetmodel.Rdata")
+
+
+
+importance <- varImp(svmmodel, scale = FALSE)
+print(importance)
+
+importance <- varImp(nnetmodel, scale = FALSE)
+print(importance)
+
+
+importance <- varImp(rfmodel, scale = FALSE)
+print(importance)
+
+
+# Extract the gene names from the SVM model
+genename <- svmmodel[["coefnames"]]
+
+# Change directory and load test set data
+setwd("D:\\s2pre")
+load("test_set.Rdata")
+test_set[1:5,1:5]
+
+# Keep only columns in test_set that exist in 'genename'
+test_set <- test_set[,which(colnames(test_set) %in% genename )]
+test_set[1:5,1:5]
+
+# Merge subtype data with test set data
+test_set$Sample <- rownames(test_set)
+data <- merge(subtype, test_set, by='Sample')
+data[1:5,1:5]
+
+# Set row names for the 'data' dataframe
+data <- data %>%
+  column_to_rownames(var = 'Sample')
+data[1:5,1:5]
+
+
+
+
+
+# Calculate AUC and accuracy for each model
+# SVM model evaluation
+svm_predicted_probs <- predict(svmmodel, newdata = data, type = "prob")
+svm_predicted_class <- predict(svmmodel, newdata = data, type = "raw")
+svm_roc_obj <- roc(data$group, svm_predicted_probs$OX)
+svm_auc_val <- auc(svm_roc_obj)
+svm_acc_val <- sum(svm_predicted_class == data$group) / length(data$group)
+
+
+# nnet model evaluation
+nnet_predicted_probs <- predict(nnetmodel, newdata = data, type = "prob")
+nnet_predicted_class <- predict(nnetmodel, newdata = data, type = "raw")
+nnet_roc_obj <- roc(data$group, nnet_predicted_probs$OX)
+nnet_auc_val <- auc(nnet_roc_obj)
+nnet_acc_val <- sum(nnet_predicted_class == data$group) / length(data$group)
+
+# RF model evaluation
+rf_predicted_probs <- predict(rfmodel, newdata = data, type = "prob")
+rf_predicted_class <- predict(rfmodel, newdata = data, type = "raw")
+rf_roc_obj <- roc(data$group, rf_predicted_probs$OX)
+rf_auc_val <- auc(rf_roc_obj)
+rf_acc_val <- sum(rf_predicted_class == data$group) / length(data$group)
+
+# rpart model evaluation
+rpart_predicted_probs <- predict(rpartmodel, newdata = data, type = "prob")
+rpart_predicted_class <- predict(rpartmodel, newdata = data, type = "raw")
+rpart_roc_obj <- roc(data$group, rpart_predicted_probs$OX)
+rpart_auc_val <- auc(rpart_roc_obj)
+rpart_acc_val <- sum(rpart_predicted_class == data$group) / length(data$group)
+
+# Consolidate results in a dataframe
+results <- data.frame(
+  Model = c("SVM", "nnet", "RF", "rpart"),
+  AUC = c(svm_auc_val, nnet_auc_val,  rf_auc_val, rpart_auc_val),
+  Accuracy = c(svm_acc_val,nnet_acc_val, rf_acc_val, rpart_acc_val)
+)
+print(results)
+
+# Convert results dataframe to long format
+long_results <- gather(results, Metric, Value, -Model)
+
+# Plotting the results
+p <- ggplot(long_results, aes(x=Model, y=Value, fill=Metric)) + 
+  geom_bar(stat="identity", position=position_dodge(width=0.8), width=0.7) + 
+  geom_text(aes(label=sprintf("%.3f", Value)), position=position_dodge(width=0.8), vjust=-0.5, size=3.5) +
+  labs(title="Model Comparison", y="Value") + 
+  theme_bw() + 
+  scale_fill_manual(values = c("AUC" = "#3498db", "Accuracy" = "#f39c12")) + 
+  theme(legend.title=element_blank())
+
+print(p)
+
+# Save the plot as a PDF
+setwd("D:\\s7ml")
+pdf(file = "model_test.pdf", height = 5, width = 5)
+print(p)
+dev.off()
