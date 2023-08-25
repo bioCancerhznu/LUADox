@@ -1,0 +1,106 @@
+#=======================================================
+#set the working files and load the packages
+#=======================================================
+rm(list=ls())
+library(utils)
+library(estimate)
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+
+setwd("D:\\s3coc")
+
+subtype <- read.csv("subtype_test.csv", header = T, row.names = 1)
+
+head(subtype)
+
+table(subtype$group)
+
+subtype$group[subtype$group=="Subtype_H"] <- "IM+"
+subtype$group[subtype$group=="Subtype_P"] <- "OX+"
+
+table(subtype$group)
+
+
+
+
+setwd("D:\\s5immune\\test")
+
+estima <- read.csv("estimate_score.csv", header = T, row.names = 1)
+
+estima$Sample <- rownames(estima)
+
+MCP <- read.csv("MCP.csv", header = T, row.names = 1)
+
+MCP$Sample <- rownames(MCP)
+
+dat <- merge(estima, MCP, by="Sample")
+
+data <- merge(subtype, dat,  by="Sample")
+
+rownames(data) <- data$Sample
+
+data$Sample <- NULL
+
+
+head(data)
+
+names(data)[1] <- "subtype"
+
+data <- data[order(data$subtype),]
+
+
+exp_data <- data %>%
+  dplyr::select(-c("subtype"))%>%
+  t()%>%
+  as.data.frame()
+
+
+annotation_col <- data%>%
+  dplyr::select("subtype"  )
+
+
+
+
+annotation_col$subtype  <- as.factor(annotation_col$subtype)
+table(annotation_col$subtype)
+subtype = c("#614BC3", "#C51605")
+names(subtype) = c("IM+","OX+")
+
+
+
+ann_colors = list(subtype = subtype)
+
+library(pheatmap)
+bk = unique(c(seq(0,1, length=50)))
+
+getwd()
+
+
+
+p1 <- pheatmap(exp_data , scale = 'row',
+               cluster_cols = FALSE,
+               breaks = bk,
+               cluster_row = F,
+               border_color = NA,
+               annotation_colors = ann_colors,
+               show_colnames = FALSE,
+               show_rownames = T,
+               color = colorRampPalette(c("#20B6E2",
+                                          "#020303",
+                                          "#F5EB17"))(50),
+               legend = FALSE,
+               annotation_col = annotation_col,
+               annotation_legend = T,treeheight_row=0,
+               treeheight_col=0,
+               fontsize = 16,
+               fontsize_row=6,
+               fontsize_col = 6)
+
+pdf("heat_immune.pdf",width = 8,height = 8)
+p1
+dev.off()
+
+
+p1
