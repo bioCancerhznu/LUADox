@@ -1,0 +1,68 @@
+# ===================================================
+
+# ===================================================
+
+rm(list = ls())
+options(stringsAsFactors = F)
+library(dplyr)
+library(tidyr)
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(stringr)
+library(data.table)
+library(survival)
+library(survminer)
+set.seed(1234)
+library(tibble)
+
+
+# Change working directory and load models
+setwd("D:\\s7ml")
+load("svmmodel.Rdata")
+
+
+# Extract the gene names from the SVM model
+genename <- svmmodel[["coefnames"]]
+
+
+setwd("D:\\s4gsea\\train")
+
+edgout <- read.csv("edgerOut.csv", header = T, row.names = 1)
+
+edgout_train <- edgout[which(rownames(edgout) %in% genename),]
+
+head(edgout_train)
+
+edgout_train <- subset(edgout_train, select=c("logFC", "FDR" ))
+
+colnames(edgout_train) <- paste0("Dataset_Training_", colnames(edgout_train))
+
+edgout_train$genes <- rownames(edgout_train)
+
+
+
+
+setwd("D:\\s4gsea\\test")
+
+edgout <- read.csv("edgerOut.csv", header = T, row.names = 1)
+
+edgout_test <- edgout[which(rownames(edgout) %in% genename),]
+
+edgout_test <- subset(edgout_test, select=c("logFC", "FDR" ))
+
+colnames(edgout_test) <- paste0("Dataset_Testing_", colnames(edgout_test))
+
+edgout_test$genes <- rownames(edgout_test)
+
+edgout <- merge(edgout_train, edgout_test, by="genes")
+
+rownames(edgout) <- edgout$genes
+
+edgout$genes <- NULL
+
+edgout <- round(edgout, 3)
+
+
+setwd("D:\\s8dis")
+
+write.csv(edgout, file = "dis.csv")
