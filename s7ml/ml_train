@@ -1,0 +1,592 @@
+#=======================================================
+
+#=======================================================
+rm(list=ls())
+library(edgeR)
+library(limma)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(caret)
+library(MASS) 
+library(caret)
+library(kernlab)
+set.seed(1234)
+
+#=======================================================
+
+#=======================================================
+setwd("D:\\s3coc")
+subtype <- read.csv("subtype_train.csv", row.names = 1)
+head(subtype)
+
+table(subtype$group)
+
+subtype$group[subtype$group=="Subtype_M"] <- "IM"
+subtype$group[subtype$group=="Subtype_O"] <- "OX"
+
+table(subtype$group)
+
+#=======================================================
+
+#=======================================================
+
+setwd("D:\\s3coc")
+
+gene1 <- read.csv("Immunotherapy_genecard.csv", header = T)
+
+head(gene1)
+
+# Sorting the data frame based on Relevance.score in descending order
+sorted_gene1 <- gene1[order(-gene1$Relevance.score), ]
+
+# Selecting the top 500 rows
+top_500_Im <- sorted_gene1[1:1000, ]
+
+
+
+
+gene2 <- read.csv("oxidativestress_genecard.csv", header = T)
+
+# Sorting the data frame based on Relevance.score in descending order
+sorted_gene2 <- gene2[order(-gene2$Relevance.score), ]
+
+# Selecting the top 500 rows
+top_500_Ox <- sorted_gene2[1:1000, ]
+
+genename <- unique(union(top_500_Im$Gene.Symbol, top_500_Ox$Gene.Symbol))
+
+#=======================================================
+
+#=======================================================
+
+setwd("D:\\s4gsea\\train")
+diff <- read.csv("edgerOut.csv", row.names = 1)
+
+# diff$logFCabs <- abs(diff$logFC)
+diff <- subset(diff, diff$PValue < 0.05)
+diff <- subset(diff, diff$logFC > 0.5)
+
+genename <- intersect(genename, rownames(diff))
+
+
+#=======================================================
+
+#=======================================================
+
+
+
+setwd("D:\\s2pre")
+
+load("train_set.Rdata")
+
+train_set[1:5,1:5]
+
+train_set <- train_set[,which(colnames(train_set) %in% genename )]
+
+train_set[1:5,1:5]
+
+
+
+
+train_set$Sample <- rownames(train_set)
+
+data <- merge(subtype, train_set, by='Sample')
+
+data[1:5,1:5]
+
+data <- data %>%
+  column_to_rownames(var = 'Sample')
+
+data[1:5,1:5]
+
+
+
+
+#=======================================================
+
+#=======================================================
+
+# Load necessary libraries
+library(caret)
+library(glmnet)
+
+# Convert "group" to a factor
+data$group <- as.factor(data$group)
+
+
+head(data)[1:5,1:5]
+
+# Define control with SVM-RFE method
+ctrl <- rfeControl(method="cv", number=5)
+
+# Apply SVM-RFE
+result <- rfe(data[,2:ncol(data)], data[,1], sizes=c(3, 6, 9, 12, 15), 
+              rfeControl=ctrl, method="svmRadial")
+
+
+
+
+result
+
+dt <- as.data.frame(result$results)
+dt <- dt[-nrow(dt),]
+dt
+
+
+setwd("D:\\s7ml")
+
+
+library(ggplot2)
+
+p <- ggplot(dt, aes(x = Variables, y = Accuracy)) + 
+  geom_line(color="blue") + 
+  geom_point(color="red") + 
+  geom_text(aes(label = sprintf("%.3f", Accuracy)), vjust=-0.5) +
+  labs(title="Accuracy vs. Number of Variables", 
+       x="Number of Variables", 
+       y="Accuracy") + 
+  scale_x_continuous(breaks = c(3, 6, 9, 12, 15, 18)) +
+  theme_bw()
+
+
+pdf(file = "gene_sele.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+
+
+#=======================================================
+
+#=======================================================
+
+
+
+str(result)
+
+dt1 <- result$variables[result$variables$Variables == 12,]
+
+
+
+library(dplyr)
+
+gene_count_rank <- dt1 %>%
+  group_by(var) %>%
+  summarise(count = n()) %>%
+  arrange(-count)
+
+print(gene_count_rank)
+gene_count_rank <- gene_count_rank[1:12,]
+
+
+selectedgenes <- gene_count_rank$var
+selectedgenes
+
+
+data <- data[, c("group", selectedgenes)]
+
+#=======================================================
+
+#=======================================================
+
+
+customSummary <- function(data, lev = NULL, model = NULL) {
+  out <- c(twoClassSummary(data, lev, model),
+           Accuracy = mean(data$obs == data$pred))
+  out
+}
+
+paramGrid <- expand.grid(size = c(5, 10, 15), decay = c(0.01, 0.1, 1))
+
+
+cvControl <- trainControl(method = "repeatedcv", 
+                          number = 5, 
+                          repeats = 50,
+                          classProbs = TRUE,
+                          summaryFunction = customSummary,  
+                          search = "grid")
+
+
+nnetmodel <- train(group ~ ., 
+                    data = data,
+                    method = "nnet",
+                    trControl = cvControl,
+                    metric = "ROC",
+                    tuneGrid = paramGrid)
+
+nnetmodel
+
+
+print(nnetmodel$bestTune)
+
+allAUCs <- nnetmodel$resample$ROC
+allAccuracies <- nnetmodel$resample$Accuracy
+
+avgAUC <- mean(allAUCs) 
+avgAccuracy <- mean(allAccuracies)
+
+# 95% CI for AUC
+lowerBoundAUC <- quantile(allAUCs, 0.025)
+upperBoundAUC <- quantile(allAUCs, 0.975)
+
+# 95% CI for Accuracy
+lowerBoundAcc <- quantile(allAccuracies, 0.025)
+upperBoundAcc <- quantile(allAccuracies, 0.975)
+
+cat("Average AUC:", avgAUC, "\n")
+cat("95% CI for AUC: [", lowerBoundAUC, ", ", upperBoundAUC, "]\n")
+cat("Average Accuracy:", avgAccuracy, "\n")
+cat("95% CI for Accuracy: [", lowerBoundAcc, ", ", upperBoundAcc, "]\n")
+
+
+
+dt <- nnetmodel$results
+
+
+dt
+
+
+p <- ggplot(dt, aes(x = size, y = ROC, group = decay , color = as.factor(decay ))) + 
+  geom_point() + 
+  geom_line() + 
+  geom_text(aes(label = sprintf("%.3f", ROC)), vjust=-0.5) +
+  scale_color_discrete(name="Sigma") +
+  scale_x_continuous(breaks = c(5, 10, 15)) +
+  theme_bw()
+
+p
+
+pdf(file = "nnet_best_AUC.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+save(nnetmodel, file = "nnetmodel.Rdata")
+
+
+
+
+
+p <- ggplot(dt, aes(x = size, y = Accuracy, group = decay , 
+                    color = as.factor(decay ))) + 
+  geom_point() + 
+  geom_line() + 
+  geom_text(aes(label = sprintf("%.3f", Accuracy)), vjust=-0.5) +
+  scale_color_discrete(name="decay") +
+  scale_x_continuous(breaks = c(5, 10, 15)) +
+  theme_bw()
+
+p
+
+pdf(file = "nnet_best_Accuracy.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+
+
+#=======================================================
+
+#=======================================================
+
+
+customSummary <- function(data, lev = NULL, model = NULL) {
+  out <- c(twoClassSummary(data, lev, model),
+           Accuracy = mean(data$obs == data$pred))
+  out
+}
+
+
+
+paramGrid <- expand.grid(cp = seq(0.005, 0.2, by = 0.05))
+
+cvControl <- trainControl(method = "repeatedcv", 
+                          number = 5, 
+                          repeats = 50,
+                          classProbs = TRUE,
+                          summaryFunction = customSummary,  
+                          search = "grid")
+
+
+rpartmodel <- train(group ~ ., 
+                    data = data,
+                    method = "rpart",
+                    trControl = cvControl,
+                    metric = "ROC",
+                    tuneGrid = paramGrid)
+
+rpartmodel
+
+
+print(rpartmodel$bestTune)
+
+allAUCs <- rpartmodel$resample$ROC
+allAccuracies <- rpartmodel$resample$Accuracy
+
+avgAUC <- mean(allAUCs) 
+avgAccuracy <- mean(allAccuracies)
+
+# 95% CI for AUC
+lowerBoundAUC <- quantile(allAUCs, 0.025)
+upperBoundAUC <- quantile(allAUCs, 0.975)
+
+# 95% CI for Accuracy
+lowerBoundAcc <- quantile(allAccuracies, 0.025)
+upperBoundAcc <- quantile(allAccuracies, 0.975)
+
+cat("Average AUC:", avgAUC, "\n")
+cat("95% CI for AUC: [", lowerBoundAUC, ", ", upperBoundAUC, "]\n")
+cat("Average Accuracy:", avgAccuracy, "\n")
+cat("95% CI for Accuracy: [", lowerBoundAcc, ", ", upperBoundAcc, "]\n")
+
+
+
+dt <- rpartmodel$results
+
+
+dt
+
+
+p <- ggplot(dt, aes(x = cp, y = ROC)) + 
+  geom_line(color="blue") + 
+  geom_point(color="red") + 
+  geom_text(aes(label = sprintf("%.3f", ROC)), vjust=-0.5) +
+  scale_x_continuous(breaks = c(0.005, 0.055, 0.105, 0.155)) +
+  theme_bw()
+
+p
+
+
+pdf(file = "dt_best_AUC.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+save(rpartmodel, file = "rpartmodel.Rdata")
+
+
+
+
+
+
+
+p <- ggplot(dt, aes(x = cp, y = Accuracy)) + 
+  geom_line(color="blue") + 
+  geom_point(color="red") + 
+  geom_text(aes(label = sprintf("%.3f", Accuracy)), vjust=-0.5) +
+  scale_x_continuous(breaks = c(0.005, 0.055, 0.105, 0.155)) +
+  theme_bw()
+
+p
+
+
+pdf(file = "dt_best_Accuracy.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+
+
+
+#=======================================================
+
+#=======================================================
+
+
+paramGrid <- expand.grid(sigma = c(0.01, 0.05, 0.1),
+                         C=c(1, 10, 100))
+
+cvControl <- trainControl(method = "repeatedcv", 
+                          number = 5, 
+                          repeats = 50,
+                          classProbs = TRUE,
+                          summaryFunction = customSummary,  
+                          search = "grid")
+
+
+
+
+svmmodel <- train(group ~ ., 
+                  data = data,
+                  method = "svmRadial",
+                  trControl = cvControl,
+                  metric = "ROC",
+                  tuneGrid = paramGrid)  
+
+svmmodel
+
+print(svmmodel$bestTune)
+
+
+allAUCs <- svmmodel$resample$ROC
+allAccuracies <- svmmodel$resample$Accuracy
+
+avgAUC <- mean(allAUCs) 
+avgAccuracy <- mean(allAccuracies)
+
+# 95% CI for AUC
+lowerBoundAUC <- quantile(allAUCs, 0.025)
+upperBoundAUC <- quantile(allAUCs, 0.975)
+
+# 95% CI for Accuracy
+lowerBoundAcc <- quantile(allAccuracies, 0.025)
+upperBoundAcc <- quantile(allAccuracies, 0.975)
+
+cat("Average AUC:", avgAUC, "\n")
+cat("95% CI for AUC: [", lowerBoundAUC, ", ", upperBoundAUC, "]\n")
+cat("Average Accuracy:", avgAccuracy, "\n")
+cat("95% CI for Accuracy: [", lowerBoundAcc, ", ", upperBoundAcc, "]\n")
+
+
+
+
+
+dt <- svmmodel$results
+
+
+dt
+
+
+p <- ggplot(dt, aes(x = C, y = ROC, group = sigma, color = as.factor(sigma))) + 
+  geom_point() + 
+  geom_line() + 
+  geom_text(aes(label = sprintf("%.3f", ROC)), vjust=-0.5) +
+  scale_color_discrete(name="Sigma") +
+  scale_x_continuous(breaks = c(1, 10, 100)) +
+  theme_bw()
+
+p
+
+pdf(file = "svm_best_AUC.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+save(svmmodel, file = "svmmodel.Rdata")
+
+
+
+
+dt
+
+
+p <- ggplot(dt, aes(x = C, y = Accuracy, group = sigma, color = as.factor(sigma))) + 
+  geom_point() + 
+  geom_line() + 
+  geom_text(aes(label = sprintf("%.3f", Accuracy)), vjust=-0.5) +
+  scale_color_discrete(name="Sigma") +
+  scale_x_continuous(breaks = c(1, 10, 100)) +
+  theme_bw()
+
+p
+
+
+pdf(file = "svm_best_Accuracy.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+
+
+#=======================================================
+
+#=======================================================
+
+
+
+paramGrid <- expand.grid(mtry = c(3, 5, 7, 10, 15, 20))
+
+cvControl <- trainControl(method = "repeatedcv", 
+                          number = 5, 
+                          repeats = 50,
+                          classProbs = TRUE,
+                          summaryFunction = customSummary,  
+                          search = "grid")
+
+
+rfmodel <- train(group ~ ., 
+               data = data,
+               method = "rf",  
+               trControl = cvControl,
+               metric = "ROC",
+               tuneGrid = paramGrid)  
+
+
+rfmodel 
+
+
+
+
+print(rfmodel$bestTune)
+
+
+allAUCs <- rfmodel$resample$ROC
+allAccuracies <- rfmodel$resample$Accuracy
+
+avgAUC <- mean(allAUCs) 
+avgAccuracy <- mean(allAccuracies)
+
+# 95% CI for AUC
+lowerBoundAUC <- quantile(allAUCs, 0.025)
+upperBoundAUC <- quantile(allAUCs, 0.975)
+
+# 95% CI for Accuracy
+lowerBoundAcc <- quantile(allAccuracies, 0.025)
+upperBoundAcc <- quantile(allAccuracies, 0.975)
+
+cat("Average AUC:", avgAUC, "\n")
+cat("95% CI for AUC: [", lowerBoundAUC, ", ", upperBoundAUC, "]\n")
+cat("Average Accuracy:", avgAccuracy, "\n")
+cat("95% CI for Accuracy: [", lowerBoundAcc, ", ", upperBoundAcc, "]\n")
+
+
+
+
+
+
+
+dt <- rfmodel$results
+
+
+dt
+
+
+p <- ggplot(dt, aes(x = mtry, y = ROC)) + 
+  geom_line(color="blue") + 
+  geom_point(color="red") + 
+  geom_text(aes(label = sprintf("%.3f", ROC)), vjust=-0.5) +
+  scale_x_continuous(breaks = c(3, 6, 9, 12, 15, 18)) +
+  theme_bw()
+
+p
+
+
+pdf(file = "rf_best_AUC.pdf", height = 5, width = 5)
+p
+dev.off()
+
+save(rfmodel, file = "rfmodel.Rdata")
+
+
+
+
+dt
+
+
+p <- ggplot(dt, aes(x = mtry, y = Accuracy)) + 
+  geom_line(color="blue") + 
+  geom_point(color="red") + 
+  geom_text(aes(label = sprintf("%.3f", Accuracy)), vjust=-0.5) +
+  scale_x_continuous(breaks = c(3, 6, 9, 12, 15, 18)) +
+  theme_bw()
+
+p
+
+
+pdf(file = "rf_best_Accuracy.pdf", height = 5, width = 5)
+p
+dev.off()
+
+
+
