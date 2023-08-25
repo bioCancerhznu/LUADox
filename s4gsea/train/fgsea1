@@ -1,0 +1,81 @@
+#=======================================================
+
+#=======================================================
+rm(list=ls())
+library(edgeR)
+library(limma)
+library(dplyr)
+library(tidyr)
+library(tibble)
+#=======================================================
+
+#=======================================================
+
+
+setwd("D:\\s3coc")
+subtype_train <- read.csv("subtype_train.csv", row.names = 1)
+head(subtype_train)
+
+
+setwd("D:\\s2pre")
+
+load("train_set.Rdata")
+
+train_set[1:5,1:5]
+
+train_set$Sample <- rownames(train_set)
+
+data <- merge(subtype_train, train_set, by='Sample')
+
+data[1:5,1:5]
+
+#=======================================================
+
+
+#=======================================================
+
+exprdata <- data %>%
+  column_to_rownames(var = 'Sample') %>%
+  dplyr::select(-group)
+
+head(exprdata)[1:5,1:5] 
+exprdata <- as.data.frame(t(exprdata))
+head(exprdata)[1:5,1:5] 
+
+groupdata <- data %>%
+  column_to_rownames(var = 'Sample') %>%
+  dplyr::select(group)
+head(groupdata)
+
+
+table(groupdata$group)
+
+#=======================================================
+
+#=======================================================
+
+group = factor(groupdata$group,levels=c('Subtype_M','Subtype_O'))
+
+design <- model.matrix(~group)
+
+library(edgeR)
+
+y <- DGEList(counts=exprdata,group=group)
+y <- calcNormFactors(y)
+y <- estimateCommonDisp(y)
+y <- estimateTagwiseDisp(y)
+et <- exactTest(y,pair = c('Subtype_M','Subtype_O'))
+topTags(et)
+ordered_tags <- topTags(et, n=100000)
+
+allDiff=ordered_tags$table
+allDiff=allDiff[is.na(allDiff$FDR)==FALSE,]
+diff=allDiff
+
+getwd()
+
+setwd("D:\\s4gsea\\train")
+write.csv(diff,file="edgerOut.csv")
+
+
+head(diff)
