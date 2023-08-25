@@ -1,0 +1,46 @@
+#=======================================================
+#set the working files and load the packages
+#=======================================================
+rm(list=ls())
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(MCPcounter)
+?MCPcounter.estimate
+
+
+setwd("D:\\s2pre")
+
+load("test_set.Rdata")
+
+cdata <- as.data.frame(t(test_set))
+
+setwd("D:\\s5immune\\test")
+
+probesets=read.table("http://raw.githubusercontent.com/ebecht/MCPcounter/master/Signatures/probesets.txt",
+                     sep="\t",stringsAsFactors=FALSE,colClasses="character")
+head(probesets)
+write.csv(probesets, file = 'probeset.csv')
+genes=read.table("http://raw.githubusercontent.com/ebecht/MCPcounter/master/Signatures/genes.txt",
+                 sep="\t",stringsAsFactors=FALSE,header=TRUE,colClasses="character",check.names=FALSE)
+
+head(genes)
+write.csv(genes, file = 'genes.csv')
+results<- MCPcounter.estimate(cdata,featuresType=c("HUGO_symbols")[1],
+                              probesets=probesets,
+                              genes=genes)
+
+results <- as.data.frame(results)
+results[1:5,1:5]
+results <- as.data.frame(t(results))
+results[1:5,1:5]
+
+normalit<-function(m){
+  (m - min(m))/(max(m)-min(m))
+}
+results <- apply(results,2,normalit)
+results[1:5,1:5]
+
+
+write.csv(results, file = "MCP.csv")
+
