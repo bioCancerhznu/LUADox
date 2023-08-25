@@ -1,0 +1,64 @@
+#=======================================================
+#set the working files and load the packages
+#=======================================================
+rm(list=ls())
+library(utils)
+library(estimate)
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+
+setwd("D:\\s2pre")
+
+load("test_set.Rdata")
+
+CancerExpr <- as.data.frame(t(test_set))
+
+setwd("D:\\s5immune\\test")
+
+
+CancerExpr$GeneSymbol <- rownames(CancerExpr)
+
+CancerExpr <- CancerExpr %>%
+  dplyr::select(GeneSymbol, everything())%>%
+  remove_rownames()
+
+CancerExpr[1:4,1:4]
+
+
+write.table(CancerExpr, file = 'CancerExpr.txt', row.names=F, sep = '\t',  quote =FALSE)
+
+wd <- getwd()
+wd
+
+CancerExpr <-  paste0(wd, '/CancerExpr.txt')
+
+filterCommonGenes(input.f=CancerExpr, 
+                  output.f="cancergenes.gct", 
+                  id="GeneSymbol")
+
+
+
+estimateScore(input.ds = "cancergenes.gct",
+              output.ds="estimate_score.gct", 
+              platform="affymetrix")
+
+scores=read.table("estimate_score.gct",skip = 2,header = T)
+rownames(scores)=scores[,1]
+scores=t(scores[,3:ncol(scores)])
+head(scores)
+scores[is.na(scores)] <- 0
+
+normalit<-function(m){
+  (m - min(m))/(max(m)-min(m))
+}
+scores <- apply(scores,2,normalit)
+head(scores)
+
+scores <- as.data.frame(scores)
+
+scores$ESTIMATEScore <- NULL
+
+write.csv(scores, file = 'estimate_score.csv')
+
