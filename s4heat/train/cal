@@ -1,0 +1,51 @@
+#=======================================================
+
+
+#=======================================================
+
+rm(list=ls())
+library(TCGAbiolinks)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(edgeR)
+library(limma)
+library("GSEABase")
+library(GSVA)
+
+
+
+setwd("D:\\s2pre")
+
+load("train_set.Rdata")
+
+train_set <- as.data.frame(t(train_set))
+
+exprSet <- as.matrix(train_set)
+
+exprSet[1:5,1:5]
+
+setwd("D:\\s4heat\\train")
+
+geneSets <- getGmt("msigdb.v7.0.symbols")
+# mat = normalizeBetweenArrays(exprSet)
+
+Result=gsva(exprSet, 
+            geneSets, 
+            min.sz=1, 
+            max.sz=20000, 
+            verbose=TRUE,
+            parallel.sz=6)
+
+
+
+Result <- as.data.frame(t(Result))
+
+
+normalized_data <- data.frame(apply(Result, 2, function(x) (x - min(x)) / (max(x) - min(x))))
+
+head(normalized_data )
+
+write.csv(normalized_data,file="gsvaresult.csv")
+
+
