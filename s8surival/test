@@ -1,0 +1,119 @@
+# ===================================================
+
+# ===================================================
+
+rm(list = ls())
+options(stringsAsFactors = F)
+library(dplyr)
+library(tidyr)
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(stringr)
+library(data.table)
+library(survival)
+library(survminer)
+set.seed(1234)
+
+
+setwd("D:\\s2pre")
+
+pdata <- read.csv(file = "pdata.csv", header = T, row.names = 1)
+
+
+# Change working directory and load models
+setwd("D:\\s7ml")
+load("svmmodel.Rdata")
+
+
+# Extract the gene names from the SVM model
+genename <- svmmodel[["coefnames"]]
+
+# Change directory and load test set data
+setwd("D:\\s2pre")
+load("test_set.Rdata")
+test_set[1:5,1:5]
+
+# Keep only columns in test_set that exist in 'genename'
+test_set <- test_set[,which(colnames(test_set) %in% genename )]
+test_set[1:5,1:5]
+
+test_set$Sample <- rownames(test_set)
+data <- merge(pdata, test_set, by='Sample')
+data[1:5,1:5]
+
+# Set row names for the 'data' dataframe
+data <- data %>%
+  column_to_rownames(var = 'Sample')
+data[1:5,1:5]
+
+data$dataset <- NULL
+
+head(data)
+
+
+
+cols_to_change <- c(3:14)  
+
+for (col in cols_to_change) {
+  data[,col] <- ifelse(data[,col] == 0, "low", "high")
+}
+
+head(data)
+
+
+
+
+# Assuming your data is stored in a data frame named "data"
+
+# Count "high" and "low" for each column
+count_high_low <- function(column) {
+  list(high = sum(column == "high"), low = sum(column == "low"))
+}
+
+counts <- apply(data, 2, count_high_low)
+
+# Convert the list to a data frame for easier visualization
+counts_df <- as.data.frame(do.call(rbind, counts))
+
+print(counts_df)
+
+
+
+
+
+
+library(gridExtra)
+
+setwd("D:\\s8surival")
+
+genes <- colnames(data)[3:14]  
+
+color1 <- "#377eb8" 
+color2 <- "#ff7f00"  
+
+
+for (gene in genes) {
+  surv_obj <- Surv(data$OS.Time, data$OS)
+  fit <- survfit(surv_obj ~ data[,gene])
+  
+  g <- ggsurvplot(
+    fit,                     
+    data = data,             
+    risk.table = TRUE,       
+    pval = TRUE,             
+    conf.int = TRUE,         
+    xlim = c(0,5),         
+    palette = c(color2, color1),
+    xlab = "Time in years",   
+    break.time.by = 1,     
+    ggtheme = theme_light(), 
+    risk.table.y.text.col = T, 
+    risk.table.y.text = FALSE 
+  )
+  
+  g$plot <- g$plot + 
+    annotate("text", x = 4, y = 0.9, label = gene, hjust = "right", size = 5, color = "black")
+  
+  filename <- paste0("test_",  gene, "_survival.pdf")
+  ggsave(filename, plot = g$plot, device = "pdf", width = 5, height = 5)
+}
