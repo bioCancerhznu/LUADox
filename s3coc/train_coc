@@ -1,0 +1,156 @@
+# ===================================================
+
+# ===================================================
+
+rm(list = ls())
+options(stringsAsFactors = F)
+library(dplyr)
+library(tidyr)
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(stringr)
+library(data.table)
+library(survival)
+library(survminer)
+set.seed(1234)
+
+# ===================================================
+
+# ===================================================
+
+setwd("D:\\s3coc")
+
+gene1 <- read.csv("Immunotherapy_genecard.csv", header = T)
+
+head(gene1)
+
+# Sorting the data frame based on Relevance.score in descending order
+sorted_gene1 <- gene1[order(-gene1$Relevance.score), ]
+
+# Selecting the top 500 rows
+top_500_Im <- sorted_gene1[1:1000, ]
+
+
+
+
+gene2 <- read.csv("oxidativestress_genecard.csv", header = T)
+
+# Sorting the data frame based on Relevance.score in descending order
+sorted_gene2 <- gene2[order(-gene2$Relevance.score), ]
+
+# Selecting the top 500 rows
+top_500_Ox <- sorted_gene2[1:1000, ]
+
+genename <- unique(union(top_500_Im$Gene.Symbol, top_500_Ox$Gene.Symbol))
+
+# ===================================================
+
+# ===================================================
+
+
+setwd("D:\\s2pre")
+
+load("train_set.Rdata")
+
+train_set[1:5,1:5]
+
+train_set <- train_set[,which(colnames(train_set) %in% genename )]
+
+train_set[1:5,1:5]
+
+train_set <- as.data.frame(t(train_set))
+
+train_set[1:5,1:5]
+
+train_set <- as.matrix(train_set)
+
+# ===================================================
+
+# ===================================================
+
+setwd("D:\\s3coc")
+
+library(CancerSubtypes)
+
+result=ExecuteCC(clusterNum=2,
+                 d=train_set,
+                 maxK=6,
+                 reps = 100,
+                 plot = "pdf",
+                 clusterAlg="pam",
+                 distance="pearson",
+                 title="traindata")
+
+
+
+result$group
+
+subtype <- as.data.frame(result$group)
+
+subtype$Sample <- rownames(subtype)
+
+names(subtype)[1] <- 'group'
+
+subtype$group <- paste0('S', subtype$group)
+
+head(subtype)
+
+table(subtype$group)
+
+subtype$group[subtype$group=="S1"] <- "Subtype_M"
+subtype$group[subtype$group=="S2"] <- "Subtype_O"
+
+table(subtype$group)
+
+write.csv(subtype, file = "subtype_train.csv")
+
+
+
+#=======================================================
+#
+#=======================================================
+
+
+setwd("D:\\s2pre")
+
+pdata <- read.csv(file = "pdata.csv", header = T, row.names = 1)
+
+
+setwd("D:\\s3coc")
+
+data <- merge(pdata, subtype, by="Sample")
+
+head(data)
+
+
+head(data)
+
+res.cox <- coxph(Surv(OS.Time,OS)~group,data=data)
+res.cox
+summary(res.cox)
+
+
+fit <- survfit(Surv(OS.Time,OS)~group,data=data)
+
+ggsurv <- ggsurvplot( fit,   data = data, pval = T,conf.int = F, 
+                      legend.title = "subtype",xlim = c(0,5),  
+                      xlab = "Time in years",  
+                      break.time.by = 1,   
+                      pval.size = 8,risk.table = "absolute", 
+                      risk.table.y.text.col = T, 
+                      risk.table.y.text = FALSE,
+                      risk.table.fontsize = 5,
+                      palette = c("#9467BD","#BCBD22"),
+                      font.y  = c(16, "bold"), 
+                      font.x  = c(16, "bold"),
+                      legend = "top",
+                      ont.legend = c(16, "bold"))
+
+ggsurv
+
+
+pdf(file = "coc_train.pdf", height = 5, width = 5)
+ggsurv
+dev.off()
+
+
