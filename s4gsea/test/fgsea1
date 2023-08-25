@@ -1,0 +1,79 @@
+#=======================================================
+
+#=======================================================
+rm(list=ls())
+library(edgeR)
+library(limma)
+library(dplyr)
+library(tidyr)
+library(tibble)
+#=======================================================
+
+#=======================================================
+
+
+setwd("D:\\s3coc")
+subtype_test <- read.csv("subtype_test.csv", row.names = 1)
+head(subtype_test)
+
+
+setwd("D:\\s2pre")
+
+load("test_set.Rdata")
+
+test_set[1:5,1:5]
+
+test_set$Sample <- rownames(test_set)
+
+data <- merge(subtype_test, test_set, by='Sample')
+
+data[1:5,1:5]
+
+#=======================================================
+
+
+#=======================================================
+
+exprdata <- data %>%
+  column_to_rownames(var = 'Sample') %>%
+  dplyr::select(-group)
+
+head(exprdata)[1:5,1:5] 
+exprdata <- as.data.frame(t(exprdata))
+head(exprdata)[1:5,1:5] 
+
+groupdata <- data %>%
+  column_to_rownames(var = 'Sample') %>%
+  dplyr::select(group)
+head(groupdata)
+
+table(groupdata$group)
+
+#=======================================================
+
+#=======================================================
+
+group = factor(groupdata$group,levels=c('Subtype_H','Subtype_P'))
+
+design <- model.matrix(~group)
+
+library(edgeR)
+
+y <- DGEList(counts=exprdata,group=group)
+y <- calcNormFactors(y)
+y <- estimateCommonDisp(y)
+y <- estimateTagwiseDisp(y)
+et <- exactTest(y,pair = c('Subtype_H','Subtype_P'))
+topTags(et)
+ordered_tags <- topTags(et, n=100000)
+
+allDiff=ordered_tags$table
+allDiff=allDiff[is.na(allDiff$FDR)==FALSE,]
+diff=allDiff
+
+getwd()
+
+setwd("D:\\s4gsea\\test")
+write.csv(diff,file="edgerOut.csv")
+
+
