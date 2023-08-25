@@ -1,0 +1,320 @@
+# ===================================================
+
+# ===================================================
+
+rm(list = ls())
+# BiocManager::install("BioinformaticsFMRP/TCGAbiolinksGUI.data", force = TRUE)
+# BiocManager::install("BioinformaticsFMRP/TCGAbiolinks", force = TRUE)
+
+library('TCGAbiolinks')
+
+library(SummarizedExperiment)
+
+
+library(TCGAbiolinks)
+projects <- getGDCprojects()
+projects <- projects$project_id
+projects
+
+
+x <- "TCGA-LUAD"
+
+
+query.exp <-GDCquery(
+  project = x, 
+  data.category = "Transcriptome Profiling",
+  data.type = "Gene Expression Quantification", 
+  workflow.type = "STAR - Counts",
+  legacy = F,
+  experimental.strategy ="RNA-Seq")
+
+GDCdownload(query = query.exp,  method = "api")
+
+Exp <- GDCprepare(query = query.exp,save = TRUE, save.filename = "LUAD.rda")
+
+# ===================================================
+
+# ===================================================
+
+
+geneexp <- assay(Exp,i = "tpm_unstrand")
+
+geneexp <- as.data.frame(geneexp)
+
+geneexp[1:5,1:5]
+
+geneexp$gene_id <- rownames(geneexp)
+
+anno <- Exp@rowRanges
+
+anno <- as.data.frame(anno)
+
+head(anno)
+
+anno <- subset(anno, select=c("gene_id",  'gene_type', 'gene_name' ))
+
+table(anno$gene_type)
+
+anno <- subset(anno, anno$gene_type == "protein_coding")
+
+exprset <- merge(anno, geneexp, by="gene_id")
+
+exprset[1:5,1:5]
+
+exprset$gene_id <- NULL
+
+exprset$gene_type <- NULL
+
+exprset[1:5,1:5]
+
+
+# ===================================================
+
+# ===================================================
+
+exprset[1:5,1:5]
+
+mRNAexprSet <- aggregate(x = exprset[,2:ncol(exprset)],
+                         by = list(exprset$gene_name),
+                         FUN = max)
+head(mRNAexprSet)
+
+mRNAexprSet[1:5,1:5]
+
+
+mRNAexprSet <- as.data.frame(mRNAexprSet)
+mRNAexprSet[1:4,1:4]
+names(mRNAexprSet)[1] <- 'ID'
+rownames(mRNAexprSet) <- mRNAexprSet$ID
+mRNAexprSet$ID <- NULL
+
+
+mRNAexprSet[1:5,1:5]
+
+
+
+
+
+
+metadat <- data.frame(colnames(mRNAexprSet))
+
+names(metadat)[1] <- 'sample'
+
+metadat$group <- substr(x=metadat$sample, start = 14, stop = 16)
+
+table(metadat$group)
+
+metadat <- subset(metadat, metadat$group == "01A")
+
+TexprSet <- mRNAexprSet[,which(colnames(mRNAexprSet) %in% metadat$sample)]
+
+
+
+
+
+
+dt <- data.frame(nams = colnames(TexprSet))
+
+dt$sim <-  substr(x=dt$nams, start = 1, stop = 12)
+
+dt$rec <- substr(x=dt$nams, start = 22, stop = 25)
+
+table(dt$rec)
+
+dt <- subset(dt, dt$rec != "A278")
+
+
+
+
+
+
+
+TexprSet <- TexprSet[,which(colnames(TexprSet) %in% dt$nams)]
+
+TexprSet[1:5,1:5]
+
+colnames(TexprSet)
+
+colnames(TexprSet) <- substr(x=colnames(TexprSet), start = 1, stop = 12)
+
+exprSet <- TexprSet
+
+exprSet[1:5,1:5]
+
+colnames(exprSet) <- chartr(old = "-", new = "_", x=colnames(exprSet))
+
+
+# ===================================================
+
+# ===================================================
+
+
+query <- GDCquery(project = "TCGA-LUAD", 
+                  data.category = "Clinical", 
+                  file.type = "xml")
+GDCdownload(query)
+clinical <- GDCprepare_clinic(query, clinical.info = "patient")
+
+
+
+clinical_trait <- clinical  %>%
+  dplyr::select(bcr_patient_barcode,gender,vital_status,   
+                days_to_death,days_to_last_followup,race_list,
+                person_neoplasm_cancer_status,
+                age_at_initial_pathologic_diagnosis,
+                stage_event_pathologic_stage,             
+                stage_event_tnm_categories  ) %>%
+  distinct( bcr_patient_barcode, .keep_all = TRUE)  
+
+
+dead_patient <- clinical_trait  %>%
+  dplyr::filter(vital_status == 'Dead') %>%
+  dplyr::select(-days_to_last_followup) %>%
+  reshape::rename(c(bcr_patient_barcode = 'Barcode',
+                    gender = 'Gender',
+                    vital_status = 'OS',
+                    days_to_death='OS.Time',
+                    race_list = 'Race',
+                    person_neoplasm_cancer_status='cancer_status',
+                    age_at_initial_pathologic_diagnosis = 'Age',
+                    stage_event_pathologic_stage = 'Stage',
+                    stage_event_tnm_categories = 'TNM' )) %>%
+  mutate(OS=ifelse(OS=='Dead',1,0))%>%
+  mutate(OS.Time=OS.Time/365)
+
+
+
+alive_patient <- clinical_trait %>%
+  dplyr::filter(vital_status == 'Alive') %>%
+  dplyr::select(-days_to_death) %>%
+  reshape::rename(c(bcr_patient_barcode = 'Barcode',
+                    gender = 'Gender',
+                    vital_status = 'OS',
+                    days_to_last_followup='OS.Time',
+                    race_list = 'Race',
+                    person_neoplasm_cancer_status='cancer_status',
+                    age_at_initial_pathologic_diagnosis = 'Age',
+                    stage_event_pathologic_stage = 'Stage',
+                    stage_event_tnm_categories = 'TNM' )) %>%
+  mutate(OS=ifelse(OS=='Dead',1,0))%>%
+  mutate(OS.Time=OS.Time/365)
+
+survival_data <- rbind(dead_patient,alive_patient)
+
+survival_data$Race <- NULL
+
+survival_data$cancer_status <- NULL
+
+survival_data$Stage <- NULL
+
+
+
+
+pd <- survival_data
+
+names(pd)[1] <- "Sample"
+
+pd$OS.Time <- round(pd$OS.Time, 1)
+
+pd$T_stages <- gsub(".*T(\\d+).*", "\\1", pd$TNM)
+
+pd$T_stages <- as.numeric(as.character(pd$T_stages))
+
+
+pd$N_stages <- gsub(".*N(\\d+).*", "\\1", pd$TNM)
+
+pd$N_stages <- as.numeric(as.character(pd$N_stages))
+
+
+pd$M_stages <- gsub(".*M(\\d+).*", "\\1", pd$TNM)
+
+pd$M_stages <- as.numeric(as.character(pd$M_stages))
+
+pd$TNM <- NULL
+
+
+pd$T_stages <- paste0("T", pd$T_stages)
+pd$N_stages <- paste0("N", pd$N_stages)
+pd$M_stages <- paste0("M", pd$M_stages)
+
+str(pd)
+
+pd$Gender <- as.character(pd$Gender)
+table(pd$Gender)
+pd$Gender[pd$Gender=="FEMALE"] <- "Female"
+pd$Gender[pd$Gender=="MALE"] <- "Male"
+table(pd$Gender)
+
+
+pd$Sample <- chartr(old = "-", new = "_", x=pd$Sample)
+
+min(pd$OS.Time)
+
+max(pd$OS.Time)
+
+table(pd$OS)
+
+
+pd <- pd[!is.na(pd$OS) & !is.na(pd$OS.Time), ]
+
+min(pd$OS.Time)
+
+max(pd$OS.Time)
+
+samplesname <- intersect(pd$Sample, colnames(exprSet))
+
+samplesname <- unique(samplesname)
+
+pd <- pd[which(pd$Sample %in% samplesname),]
+
+exprSet <- exprSet[,which(colnames(exprSet) %in% samplesname)]
+
+colnames(exprSet)
+
+
+
+
+
+
+
+
+
+str(pd)
+
+table(pd$Gender)
+
+mean(pd$Age)
+
+table(pd$T_stages)
+
+table(pd$N_stages)
+
+table(pd$M_stages)
+
+table(pd$OS)
+
+mean(pd$OS.Time)
+
+
+
+
+
+# ===================================================
+
+# ===================================================
+
+
+
+write.csv(exprSet, file = "exprSet.csv")
+
+save(exprSet, file = "exprSet.Rdata")
+
+
+
+write.csv(pd, file = "pd.csv")
+
+save(pd, file = "pd.Rdata")
+
+
+
+
