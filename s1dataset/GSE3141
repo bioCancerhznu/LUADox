@@ -1,1 +1,205 @@
+#=======================================================
+
+#=======================================================
+
+
+rm(list = ls())
+
+
+# 加载包
+library(GEOquery)
+library(dplyr)
+library(tidyr)
+library(Biobase)
+library(limma)
+library(data.table)
+library(tibble)
+library(ggplot2)
+library(biomaRt)
+library(RColorBrewer)
+library(gdata)
+set.seed(1234)
+
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 12)
+
+
+#=======================================================
+
+#=======================================================
+
+
+gsename <- "GSE3141"
+
+gse <- getGEO(gsename, destdir = ".")
+
+
+gpl <- getGEO('GPL570', destdir = ".")
+
+
+colnames(Table(gpl))
+Table(gpl)[1:10, 1:6]
+
+
+gpl <- gpl@dataTable@table
+colnames(gpl)
+gpl <- gpl %>% dplyr::select(ID, "Gene Symbol")
+write.csv(gpl, file = 'gpl.csv')
+
+
+gpl <- read.csv('gpl.csv', header = TRUE, row.names = 1)
+head(gpl)
+
+
+gpl <- gpl %>%
+  tidyr::separate("Gene.Symbol", c('gene', 'symbol'), sep = '\\///') %>%
+  dplyr::select("ID", 'gene')
+
+gpl$gene <- gdata::trim(gpl$gene)
+
+
+#=======================================================
+
+#=======================================================
+
+
+exprSet <- as.data.frame(exprs(gse$GSE3141_series_matrix.txt.gz))
+str(exprSet)
+
+
+exprSet$ID = rownames(exprSet)
+express = merge( x=gpl, y=exprSet, by="ID")
+express$ID = NULL
+
+
+express[which(is.na(express),arr.ind = T)]<-0 
+express[1:5,1:5]
+
+
+
+exprSet <- aggregate(x = express[,2:ncol(express)],
+                     by = list(express$gene),
+                     FUN = max)
+head(exprSet)[1:5,1:5]
+
+exprSet <- as.data.frame(exprSet)
+exprSet <-exprSet[-1,]
+names(exprSet)[1] <- 'ID'
+rownames(exprSet) <- exprSet$ID
+exprSet$ID <- NULL
+exprSet[1:5,1:5]
+
+min(exprSet)
+max(exprSet)
+
+
+gene_sd <- apply(exprSet, 1, sd)
+
+exprSet <- exprSet[gene_sd != 0, ]
+
+
+
+#=======================================================
+
+#=======================================================
+
+
+
+pd <- pData(gse$GSE3141_series_matrix.txt.gz)
+
+pd$title <- paste0(pd$title, ":ch1")
+
+pd1 <- pd[,which(colnames(pd) %in% pd$title)]
+
+names(pd1)
+
+
+non_na_position <- apply(pd1, 1, function(x) which(!is.na(x)))
+
+
+expression_values <- sapply(1:nrow(pd1), function(i) pd1[i, non_na_position[i]])
+
+
+result_df <- data.frame(gene = row.names(pd1), expression = expression_values)
+
+head(result_df)
+
+
+result_df$Cell_Type <- gsub("Cell type: ([A-Z]);.*", "\\1", result_df$expression)
+
+result_df$Status <- as.numeric(gsub(".*STATUS\\(0=alive, 1=dead\\): ([01])$", "\\1", result_df$expression))
+
+result_df$Surv_Months <- as.numeric(gsub(".*Surv\\(months\\): ([0-9.]+);.*", "\\1", result_df$expression))
+
+
+result_df$expression <- NULL
+
+
+head(result_df)
+
+result_df <- subset(result_df, result_df$Cell_Type == "A")
+
+pd <- result_df
+
+str(pd)
+
+pd$Cell_Type <- NULL
+
+head(pd)
+
+names(pd) <- c("Sample", "OS", "OS.Time")
+
+head(pd)
+
+str(pd)
+
+
+pd$OS.Time <- pd$OS.Time / 12
+pd$OS.Time <- round(pd$OS.Time, 1)
+
+
+pd <- pd[!is.na(pd$OS) & !is.na(pd$OS.Time), ]
+
+
+str(pd)
+
+table(pd$OS)
+
+mean(pd$OS.Time)
+
+
+#=======================================================
+
+#=======================================================
+
+
+
+samplesname <- intersect(pd$Sample, colnames(exprSet))
+
+samplesname <- unique(samplesname)
+
+
+
+pd <- pd[which(pd$Sample %in% samplesname),]
+
+exprSet <- exprSet[,which(colnames(exprSet) %in% samplesname)]
+
+colnames(exprSet)
+
+
+#=======================================================
+
+#=======================================================
+
+exprSet[1:5,1:5]
+
+write.csv(exprSet, file = "exprSet.csv")
+
+save(exprSet, file = "exprSet.Rdata")
+
+write.csv(pd, file = "pd.csv")
+
+save(pd, file = "pd.Rdata")
+
+
+
 
